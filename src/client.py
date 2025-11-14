@@ -1,5 +1,6 @@
 import os
 import ssl
+import urllib3
 
 from logger import get_logger
 from kubernetes.config.kube_config import KUBE_CONFIG_DEFAULT_LOCATION
@@ -12,6 +13,7 @@ from helpers import REQ_RETRY_TOTAL, REQ_RETRY_CONNECT, REQ_RETRY_READ, REQ_RETR
 logger = get_logger()
 
 SKIP_TLS_VERIFY = "SKIP_TLS_VERIFY"
+DISABLE_X509_STRICT_VALIDATION = "DISABLE_X509_STRICT_VALIDATION"
 
 
 def _initialize_kubeclient_configuration():
@@ -42,6 +44,23 @@ def _initialize_kubeclient_configuration():
         configuration.verify_ssl = False
         configuration.debug = False
         client.Configuration.set_default(configuration)
+
+    # Disable X509_STRICT validation if requested
+    # Workaround to make OpenSSL TLS validation laxer to be compatible with old root CA certificates
+    # (created using k8s <= 1.16). These are not compliant with OpenSSL's VERIFY_X509_STRICT
+    # that is used per default with Python 3.13.
+    if os.getenv(DISABLE_X509_STRICT_VALIDATION) == "true":
+        logger.info("Disabling X509_STRICT validation for Kubernetes API client")
+        api_client = client.ApiClient()
+        
+        ctx = ssl.create_default_context()
+        ctx.verify_flags = ctx.verify_flags & ~ssl.VERIFY_X509_STRICT
+        
+        api_client.rest_client.pool_manager = urllib3.PoolManager(
+            num_pools=4,  # default value from the kubernetes library
+            ssl_context=ctx,
+            **api_client.rest_client.pool_manager.connection_pool_kw,
+        )
 
     # push urllib3 retries to k8s client config
     configuration = client.Configuration.get_default_copy()
@@ -80,4 +99,19 @@ def _ensure_kube_config_in_child():
         backoff_factor = REQ_RETRY_BACKOFF_FACTOR,
     )
     client.Configuration.set_default(configuration)
+    
+    # Disable X509_STRICT validation if requested (mirror main process setup)
+    if os.getenv(DISABLE_X509_STRICT_VALIDATION) == "true":
+        logger.info("[child] Disabling X509_STRICT validation for Kubernetes API client")
+        api_client = client.ApiClient()
+        
+        ctx = ssl.create_default_context()
+        ctx.verify_flags = ctx.verify_flags & ~ssl.VERIFY_X509_STRICT
+        
+        api_client.rest_client.pool_manager = urllib3.PoolManager(
+            num_pools=4,  # default value from the kubernetes library
+            ssl_context=ctx,
+            **api_client.rest_client.pool_manager.connection_pool_kw,
+        )
+    
     logger.info(f"[child] Kubernetes client configured for host: {configuration.host}")
