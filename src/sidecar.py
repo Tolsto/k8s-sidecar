@@ -81,7 +81,7 @@ def main():
         request_payload = prepare_payload(os.getenv(REQ_PAYLOAD))
     script = os.getenv(SCRIPT)
 
-    _initialize_kubeclient_configuration()
+    api_client = _initialize_kubeclient_configuration()
 
     unique_filenames = os.getenv(UNIQUE_FILENAMES)
     if unique_filenames is not None and unique_filenames.lower() == "true":
@@ -103,7 +103,8 @@ def main():
     if os.getenv(IGNORE_ALREADY_PROCESSED) is not None and os.getenv(IGNORE_ALREADY_PROCESSED).lower() == "true":
         # Check API version
         try:
-            version = client.VersionApi().get_code()
+            version_api = client.VersionApi(api_client) if api_client else client.VersionApi()
+            version = version_api.get_code()
             # Filter version content and retain only numbers
             v_major = re.sub(r'\D', '', version.major)
             v_minor = re.sub(r'\D', '', version.minor)

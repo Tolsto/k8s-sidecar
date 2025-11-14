@@ -108,8 +108,8 @@ def _get_destination_folder(metadata, default_folder, folder_annotation):
 def list_resources(label, label_value, target_folder, request_url, request_method, request_payload,
                    namespace, folder_annotation, resource, unique_filenames, script, enable_5xx,
                    ignore_already_processed, resource_name):
-    _initialize_kubeclient_configuration()
-    v1 = client.CoreV1Api()
+    api_client = _initialize_kubeclient_configuration()
+    v1 = client.CoreV1Api(api_client) if api_client else client.CoreV1Api()
 
     additional_args = {}
 
@@ -337,8 +337,8 @@ def _update_file(data_key, data_content, dest_folder, metadata, resource,
 def _watch_resource_iterator(label, label_value, target_folder, request_url, request_method, request_payload,
                              namespace, folder_annotation, resource, unique_filenames, script, enable_5xx,
                              ignore_already_processed):
-    _initialize_kubeclient_configuration()
-    v1 = client.CoreV1Api()
+    api_client = _initialize_kubeclient_configuration()
+    v1 = client.CoreV1Api(api_client) if api_client else client.CoreV1Api()
     # Filter resources based on label and value or just label
     label_selector = f"{label}={label_value}" if label_value else label
 

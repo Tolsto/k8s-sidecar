@@ -20,6 +20,10 @@ def _initialize_kubeclient_configuration():
     """
     Updates the default configuration of the kubernetes client. This is
     picked up later on automatically then.
+    
+    Returns:
+        ApiClient or None: Custom ApiClient instance if DISABLE_X509_STRICT_VALIDATION is enabled,
+                          otherwise None to use default client.
     """
 
     # this is where kube_config is going to look for a config file
@@ -45,6 +49,16 @@ def _initialize_kubeclient_configuration():
         configuration.debug = False
         client.Configuration.set_default(configuration)
 
+    # push urllib3 retries to k8s client config
+    configuration = client.Configuration.get_default_copy()
+    configuration.retries = Retry(total=REQ_RETRY_TOTAL,
+                                  connect=REQ_RETRY_CONNECT,
+                                  read=REQ_RETRY_READ,
+                                  backoff_factor=REQ_RETRY_BACKOFF_FACTOR)
+    client.Configuration.set_default(configuration)
+
+    logger.debug(f"Config for cluster api at '{configuration.host}' loaded.")
+
     # Disable X509_STRICT validation if requested
     # Workaround to make OpenSSL TLS validation laxer to be compatible with old root CA certificates
     # (created using k8s <= 1.16). These are not compliant with OpenSSL's VERIFY_X509_STRICT
@@ -61,19 +75,18 @@ def _initialize_kubeclient_configuration():
             ssl_context=ctx,
             **api_client.rest_client.pool_manager.connection_pool_kw,
         )
-
-    # push urllib3 retries to k8s client config
-    configuration = client.Configuration.get_default_copy()
-    configuration.retries = Retry(total=REQ_RETRY_TOTAL,
-                                  connect=REQ_RETRY_CONNECT,
-                                  read=REQ_RETRY_READ,
-                                  backoff_factor=REQ_RETRY_BACKOFF_FACTOR)
-    client.Configuration.set_default(configuration)
-
-    logger.debug(f"Config for cluster api at '{configuration.host}' loaded.")
+        
+        return api_client
+    
+    return None
 
 def _ensure_kube_config_in_child():
-    """Ensure Kubernetes client is configured inside forked/spawned processes."""
+    """Ensure Kubernetes client is configured inside forked/spawned processes.
+    
+    Returns:
+        ApiClient or None: Custom ApiClient instance if DISABLE_X509_STRICT_VALIDATION is enabled,
+                          otherwise None to use default client.
+    """
     # Try in-cluster first (works in Pods), fall back to kubeconfig for local runs/tests.
     try:
         # Prefer in-cluster if SA token present or env is set
@@ -100,6 +113,8 @@ def _ensure_kube_config_in_child():
     )
     client.Configuration.set_default(configuration)
     
+    logger.info(f"[child] Kubernetes client configured for host: {configuration.host}")
+    
     # Disable X509_STRICT validation if requested (mirror main process setup)
     if os.getenv(DISABLE_X509_STRICT_VALIDATION) == "true":
         logger.info("[child] Disabling X509_STRICT validation for Kubernetes API client")
@@ -113,5 +128,7 @@ def _ensure_kube_config_in_child():
             ssl_context=ctx,
             **api_client.rest_client.pool_manager.connection_pool_kw,
         )
+        
+        return api_client
     
-    logger.info(f"[child] Kubernetes client configured for host: {configuration.host}")
+    return None
